@@ -186,6 +186,9 @@ def run(human_mode: bool = False, max_rounds: int = 50) -> None:
     current_state = initial_state
     rounds_played = 0
     god_view = True
+    # 去重集合：记录已打印过的 (player_name, message, street) 和行动历史长度
+    printed_chat_ids: set = set()
+    printed_action_count = 0
 
     while rounds_played < max_rounds:
         try:
@@ -199,32 +202,56 @@ def run(human_mode: bool = False, max_rounds: int = 50) -> None:
                         chat_text = get_human_chat(current_state)
                         graph.update_state(config, {"human_chat": chat_text})
                     else:
-                        print_state(current_state)
+                        print_state(current_state, show_all_cards=god_view)
                         human_act = get_human_action(current_state)
                         graph.update_state(config, {"human_action": human_act})
                     continue
 
-                pending = current_state.get("pending_chat", [])
-                if pending:
-                    street = current_state.get("street", "")
-                    last_chat = pending[-1]
-                    if last_chat.get("street") == street:
-                        print_chat_message(last_chat, god_view=god_view)
+                # ── 打印新增的对话消息（去重）──────────────────────────────
+                for entry in current_state.get("chat_history", []):
+                    chat_id = (
+                        entry.get("player_name", ""),
+                        entry.get("message", ""),
+                        entry.get("street", ""),
+                        entry.get("is_silence", False),
+                    )
+                    if chat_id not in printed_chat_ids:
+                        printed_chat_ids.add(chat_id)
+                        print_chat_message(entry, god_view=god_view)
 
-                last_history = current_state.get("action_history", [])
-                if last_history:
-                    last = last_history[-1]
-                    act = last.get("action", "")
-                    pname = last.get("player_name", "")
-                    amt = last.get("amount", 0)
-                    street = last.get("street", "")
+                # ── 打印新增的行动（去重）──────────────────────────────────
+                history = current_state.get("action_history", [])
+                for act_entry in history[printed_action_count:]:
+                    printed_action_count += 1
+                    act = act_entry.get("action", "")
+                    pname = act_entry.get("player_name", "")
+                    amt = act_entry.get("amount", 0)
+                    street = act_entry.get("street", "")
                     if act not in ("small_blind", "big_blind", "showdown"):
                         console.print(
                             f"  [dim]{street}[/] [bold]{pname}[/]: "
                             f"[yellow]{act}[/]" + (f" {amt}" if amt else "")
                         )
 
+                # 公共牌更新时打印局面（board_updated 信号）
+                if current_state.get("board_updated"):
+                    community = current_state.get("community_cards", [])
+                    street = current_state.get("street", "").upper()
+                    c_str = "  ".join(f"[bold yellow]{c}[/]" for c in community)
+                    console.rule(f"[bold cyan]── {street} ──")
+                    console.print(f"公共牌: {c_str}    底池: [bold green]{current_state.get('pot',0)}[/]")
+                    if god_view:
+                        for p in current_state.get("players", []):
+                            if p.get("hole_cards"):
+                                cards = " ".join(f"[yellow]{c}[/]" for c in p["hole_cards"])
+                                active_str = "" if p["is_active"] else " [dim](已弃牌)[/]"
+                                console.print(f"  [dim]{p['name']}:[/] {cards}{active_str}")
+                    console.print()
+
                 if current_state.get("winner_message"):
+                    run._last_community = []  # 重置，新局重新打印
+                    printed_chat_ids.clear()
+                    printed_action_count = 0
                     print_state(current_state, show_all_cards=True)
                     print_winner(current_state)
                     rounds_played += 1

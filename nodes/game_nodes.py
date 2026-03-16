@@ -132,7 +132,7 @@ def deal_community_cards(state: dict) -> dict:
         community.append(card)
     # preflop 不发公共牌，直接返回
 
-    return {"community_cards": community, "deck": deck}
+    return {"community_cards": community, "deck": deck, "board_updated": True}
 
 
 # ── 节点3：execute_action ────────────────────────────────────────────────────

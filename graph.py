@@ -59,9 +59,9 @@ def build_graph(checkpointer=None):
 
     完整流程：
       initialize_game
-          |
+          |1
       deal_cards
-          |
+          |1
       chat_start          <- 每个街道开始前重置对话轮次
           |
       route_chat          <- 循环：还有玩家未发言？
@@ -73,7 +73,7 @@ def build_graph(checkpointer=None):
       route_player        <- 判断当前玩家是 AI 还是人类
        /         \
     ai_decision  human_input
-       \         /
+       \ 1        /1
       execute_action
     """
     builder = StateGraph(GameState)

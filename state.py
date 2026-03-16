@@ -115,6 +115,9 @@ class GameState(TypedDict):
     pending_chat: list[dict]
     # chat_round_index：记录本街道已经发言的玩家数，驱动对话轮次循环
     chat_round_index: int
+    # board_updated：deal_community_cards 节点发完牌后设为 True
+    # main.py 检测到此标志时打印新局面，chat_start 节点负责重置为 False
+    board_updated: bool
 
     # ── 控制流字段 ────────────────────────────────────────────────────────
     round_number: int       # 当前局数（每局 +1，用于显示和统计）

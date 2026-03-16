@@ -25,8 +25,8 @@ from __future__ import annotations
 import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import json
-import re
+from typing import Literal
+from pydantic import BaseModel, Field, field_validator
 from langgraph.types import interrupt
 from langchain_community.chat_models.tongyi import ChatTongyi
 from langchain_core.messages import SystemMessage, HumanMessage
@@ -39,30 +39,78 @@ from prompts.poker_prompts import (
 from utils.poker_utils import evaluate_hand, hand_strength_preflop
 
 
-def _get_llm() -> ChatTongyi:
-    return ChatTongyi(model="qwen-max", temperature=0.7)  # 对话用更高温度，更有创意
+# ── Pydantic 模型：对话输出结构 ───────────────────────────────────────────────
+# 【教学重点】同 ai_nodes.py 中的 DecisionOutput
+# 这里展示 Pydantic 另一个特性：Optional 字段 + 自定义验证
+
+class ChatOutput(BaseModel):
+    """AI 对话的结构化输出。
+    
+    对比 DecisionOutput，这里的字段更宽松：
+    - message 可以是空字符串（表示沉默）
+    - is_bluff 是布尔值（LLM 有时输出 "true" 字符串，需要转换）
+    """
+    message: str = Field(default="", description="发言内容，空字符串=沉默")
+    is_bluff: bool = Field(default=False, description="是否包含欺骗意图")
+    inner_reason: str = Field(default="", description="内心原因（上帝视角）")
+
+    @field_validator("is_bluff", mode="before")
+    @classmethod
+    def coerce_bool(cls, v) -> bool:
+        """容错：把字符串 'true'/'false' 转为 Python bool。
+        LLM 经常输出 JSON 里的布尔值为字符串形式。
+        """
+        if isinstance(v, str):
+            return v.lower() in ("true", "1", "yes")
+        return bool(v)
+
+    @field_validator("message", mode="before")
+    @classmethod
+    def strip_message(cls, v) -> str:
+        """自动去除首尾空白，避免 '  ' 被当成有内容的发言。"""
+        return str(v).strip() if v else ""
 
 
 def _parse_chat_response(text: str) -> dict:
-    """从 LLM 返回中提取对话 JSON，容错处理。"""
-    try:
-        return json.loads(text.strip())
-    except json.JSONDecodeError:
-        pass
+    """
+    从 LLM 返回中提取对话 JSON，用 Pydantic 校验。
+    
+    【教学重点：降级策略 fallback chain】
+    网络请求的结果不可控，LLM 可能：
+    - 完美返回 JSON（最理想）
+    - 在 JSON 外面加了说明文字
+    - 用了 ```json 代码块包裹
+    - 返回了完全无法解析的文字
+    
+    好的解析器要有「降级链」：先试最严格的，失败了试宽松的，最后给默认值。
+    """
+    import json, re
+
+    def _try_parse(raw: str) -> dict | None:
+        try:
+            data = json.loads(raw.strip())
+            return ChatOutput.model_validate(data).model_dump()
+        except Exception:
+            return None
+
+    # 降级链：直接解析 → 代码块 → 裸 JSON 对象 → 默认沉默
+    result = _try_parse(text)
+    if result:
+        return result
+
     match = re.search(r"```(?:json)?\s*([\s\S]+?)```", text)
     if match:
-        try:
-            return json.loads(match.group(1).strip())
-        except json.JSONDecodeError:
-            pass
+        result = _try_parse(match.group(1))
+        if result:
+            return result
+
     match = re.search(r"\{[\s\S]+\}", text)
     if match:
-        try:
-            return json.loads(match.group(0))
-        except json.JSONDecodeError:
-            pass
-    # 回退：沉默
-    return {"message": "", "is_bluff": False, "inner_reason": "解析失败，默认沉默"}
+        result = _try_parse(match.group(0))
+        if result:
+            return result
+
+    return ChatOutput(message="", is_bluff=False, inner_reason="解析失败，默认沉默").model_dump()
 
 
 def _get_hand_eval(player_state: dict, game_state: dict) -> dict:
@@ -90,6 +138,7 @@ def chat_start(state: dict) -> dict:
     return {
         "chat_round_index": 0,
         "pending_chat": [],
+        "board_updated": False,
     }
 
 
