@@ -4,12 +4,20 @@
 """
 
 
+def _chips_display(name: str, chips: dict) -> str:
+    """筹码显示，0 筹码显示为出局"""
+    amount = chips.get(name, 0)
+    if amount <= 0:
+        return f"{name} 【出局】"
+    return f"{name} {amount}"
+
+
 def print_game_state(state):
     """打印游戏状态"""
     print("\n" + "=" * 70)
     print(f"【第 {state['hand_number']} 手】")
     print(f"底池：{state['pot']} 筹码")
-    chips_str = " | ".join([f"{n} {state['chips'][n]}" for n in ["老鹰", "小辣椒", "老钱"]])
+    chips_str = " | ".join([_chips_display(n, state['chips']) for n in ["老鹰", "小辣椒", "老钱"]])
     print(f"筹码：{chips_str}")
     print("=" * 70)
 
@@ -55,4 +63,8 @@ def print_winner_info(winner: str, pot: int, chips: dict):
     print(f"   赢得底池：{pot} 筹码")
     print(f"\n筹码更新：")
     for name in ["老鹰", "小辣椒", "老钱"]:
-        print(f"  {name}：{chips[name]} 筹码")
+        amount = chips.get(name, 0)
+        if amount <= 0:
+            print(f"  {name}：0 筹码 【出局】")
+        else:
+            print(f"  {name}：{amount} 筹码")
