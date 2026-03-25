@@ -17,13 +17,13 @@ def print_game_state(state):
     print("\n" + "=" * 70)
     print("【第 " + str(state["hand_number"]) + " 手】")
     print("底池：" + str(state["pot"]) + " 筹码")
-    order = state.get("player_order", ["老鹰", "小辣椒", "老钱"])
+    order = state.get("player_order", ["老鹰", "小辣椒", "老钱", "火线" , "铁拳"])
     chips_str = " | ".join([_chips_display(n, state["chips"]) for n in order])
     print("筹码：" + chips_str)
     print("=" * 70)
 
 
-def print_player_action(agent_name: str, action: str, amount: int, speech: str , chips_after_action: int):
+def print_player_action(agent_name: str, action: str, amount: int, speech: str, chips_after_action: int, hole_cards: list):
     """打印玩家行动"""
     action_cn = {
         "fold": "弃牌",
@@ -32,7 +32,10 @@ def print_player_action(agent_name: str, action: str, amount: int, speech: str ,
         "raise": "加注"
     }.get(action, action)
 
-    print("c" + agent_name + "\u3015")
+    cards_text = ""
+    if hole_cards and len(hole_cards) >= 2:
+        cards_text = "（" + str(hole_cards[0]) + " " + str(hole_cards[1]) + "）"
+    print("\u3014" + agent_name + cards_text + "\u3015")
     if action in ("raise", "call"):
         print("   行动：" + action_cn + " " + str(amount) + " 筹码" + "（剩余筹码：" + str(chips_after_action) + "）")
     else:
@@ -48,7 +51,10 @@ def print_dealer_info(players_info: dict):
     print("\u2593" * 70)
     for name, info in players_info.items():
         hole_cards = info["hole_cards"]
-        print("  " + name + " 的手牌：" + str(hole_cards[0]) + " " + str(hole_cards[1]))
+        if info.get("folded", False) and len(hole_cards) < 2:
+            print("  " + name + "：已出局，本手不参与")
+        else:
+            print("  " + name + " 的手牌：" + str(hole_cards[0]) + " " + str(hole_cards[1]))
 
 
 def print_community_cards(stage: str, community_cards: list):

@@ -46,13 +46,13 @@ def build_game_graph():
 
 
 def run_game():
-    """运行游戏"""
+    """运行游戏（锦标赛模式）"""
     print("=" * 70)
     print("  德州扑克多Agent游戏")
     print("  基于 LangGraph State 架构")
-    print("  模型：通义千问 qwen-plus") 
+    print("  模型：通义千问 qwen-plus")
     print("=" * 70)
-    print( str(len(PLAYER_ORDER)) + "位玩家：")
+    print(str(len(PLAYER_ORDER)) + "位玩家：")
     for name in PLAYER_ORDER:
         profile = AGENT_PROFILES.get(name)
         if profile:
@@ -74,11 +74,22 @@ def run_game():
         "hand_ended": False,
         "winner": "",
         "street_finished": False,
+        "ante": 80,
+        "min_open_raise": 100,
+        "max_raises_per_street": 3,
+        "raises_in_street": 0,
+        "last_raise_size": 100,
     }
 
     app = build_game_graph()
 
-    for hand_num in range(1, 4):
+    hand_num = 1
+    final_state = initial_state
+    while True:
+        alive_players = [n for n in PLAYER_ORDER if initial_state["chips"].get(n, 0) > 0]
+        if len(alive_players) <= 1:
+            break
+
         initial_state["hand_number"] = hand_num
         print_game_state(initial_state)
 
@@ -93,18 +104,29 @@ def run_game():
         initial_state["community_cards"] = []
         initial_state["deck"] = []
         initial_state["stage"] = "preflop"
+        initial_state["raises_in_street"] = 0
+        initial_state["last_raise_size"] = initial_state.get("min_open_raise", 100)
 
-        if hand_num < 3:
-            user_input = input("\n按 Enter 继续下一手，输入 q 退出：").strip().lower()
-            if user_input == "q":
-                break
+        hand_num += 1
+
+        alive_after_hand = [n for n in PLAYER_ORDER if initial_state["chips"].get(n, 0) > 0]
+        if len(alive_after_hand) <= 1:
+            break
+
+        user_input = input("\n按 Enter 继续下一手，输入 q 退出：").strip().lower()
+        if user_input == "q":
+            break
 
     print("\n" + "=" * 70)
     print("  游戏结束！")
+    winner_names = [n for n in PLAYER_ORDER if final_state["chips"].get(n, 0) > 0]
+    if len(winner_names) == 1:
+        print("  冠军：" + winner_names[0])
     print("  最终筹码：")
     for name in PLAYER_ORDER:
         print("    " + name + "：" + str(final_state["chips"][name]) + " 筹码")
     print("=" * 70)
+
 
 def export_graph_png(output_path: str = "game_graph.png"):
     app = build_game_graph()

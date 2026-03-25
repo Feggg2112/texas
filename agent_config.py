@@ -101,15 +101,34 @@ def call_llm_for_action(agent_name: str, hole_cards: list, game_context: str) ->
     """
     profile = AGENT_PROFILES[agent_name]
     cards_str = "、".join([str(c) for c in hole_cards])
+    stage_tips = {
+        "preflop": "翻牌前（preflop）：尚未看到公共牌，请务必谨慎，不要轻易全押，拿到很强的手牌全压了反而让对手害怕不敢跟了。也不要轻易弃牌，可以赌后面的公共牌，也可以吓唬影响对手的判断",
+        "flop":    "翻牌（flop）：已有3张公共牌，可以结合公共牌判断自己的成牌潜力，再决定下注力度。",
+        "turn":    "转牌（turn）：已有4张公共牌，局势更加明朗，请结合当前牌面和底池赔率做出理性决策。",
+        "river":   "河牌（river）：5张公共牌已全部亮出，这是最后一轮下注，请综合全局判断是否价值下注、诈唬或弃牌。",
+    }
+    # 从 game_context 中提取当前街道
+    current_stage = "preflop"
+    for s in ["preflop", "flop", "turn", "river"]:
+        if s in game_context:
+            current_stage = s
+            break
+    stage_hint = stage_tips.get(current_stage, "")
+
     user_prompt = (
     f"你的手牌：{cards_str}\n\n"
+    f"【当前阶段提示】{stage_hint}\n\n"
     f"游戏情况：\n{game_context}\n\n"
-    "请决定你的行动。\n"
+    "请根据上面的实时信息与规则作出决策。\n"
     "【硬性输出规范】\n"
     "你必须只输出一行，格式严格为：action amount|speech\n"
     "- action 只能是：fold / check / call / raise\n"
     "- amount 必须是整数；fold/check 时 amount 必须为 0\n"
+    "- 必须遵守游戏情况里的规则限制（前注、最小加注到、每街最大加注次数）\n"
+    "- 如果规则提示本街不能raise，就不要输出raise\n"
+    "- 如果要raise，amount 必须让你的总下注至少达到‘最小加注到’\n"
     "- raise/call 的 amount 绝对不能超过你当前筹码数（游戏情况中'你当前筹码'一栏有标注）\n"
+    "- 锦标赛不是最后一手：不要把每手都当生死局，非强牌请控制全押频率\n"
     "- 不要输出多余解释、不要换行、不要加引号\n"
     "示例：raise 120|我在按钮位用范围优势持续施压。"
 )
