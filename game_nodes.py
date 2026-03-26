@@ -56,6 +56,38 @@ def _alive_players(state):
     return [n for n in state["player_order"] if state["chips"].get(n, 0) > 0]
 
 
+def _recent_speeches(state, current_name, limit=8):
+    msgs = state.get("messages", [])
+    speeches = []
+    for msg in msgs[-limit:]:
+        if msg.get("agent") == current_name:
+            continue
+        speech = (msg.get("speech") or "").strip()
+        if speech:
+            speeches.append(msg.get("agent", "未知") + "：" + speech)
+    return speeches[-limit:]
+
+
+def _pressure_hint(state, current_name):
+    msgs = state.get("messages", [])
+    pressure_score = 0
+    for msg in msgs[-10:]:
+        if msg.get("agent") == current_name:
+            continue
+        action = msg.get("action", "")
+        speech = (msg.get("speech") or "")
+        if action == "raise":
+            pressure_score += 2
+        if any(k in speech for k in ["压", "顶", "全下", "不退", "重注", "拿下"]):
+            pressure_score += 1
+
+    if pressure_score >= 6:
+        return "对手语言与下注压迫感很强，可能在持续施压（含诈唬）。"
+    if pressure_score >= 3:
+        return "对手有明显施压倾向，注意平衡跟注与反击频率。"
+    return "当前语言压迫一般，优先按牌力与赔率决策。"
+
+
 def _street_bets_balanced(players_info, active):
     """
     判断本街是否所有需要行动的玩家都已行动且下注平衡。
@@ -227,6 +259,15 @@ def player_action_node(state: GameState) -> dict:
         info = state["players_info"].get(other, {})
         if info.get("action"):
             ctx_lines.append("  " + other + "：" + info["action"] + "（下注" + str(info.get("bet", 0)) + "）")
+
+    recent_speeches = _recent_speeches(state, name, limit=8)
+    ctx_lines.append("最近对手发言：")
+    if recent_speeches:
+        for line in recent_speeches:
+            ctx_lines.append("  " + line)
+    else:
+        ctx_lines.append("  （暂无）")
+    ctx_lines.append("心理压力判断：" + _pressure_hint(state, name))
 
     ctx_lines.append("对手剩余筹码：")
     for other in order:

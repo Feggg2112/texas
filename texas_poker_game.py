@@ -137,5 +137,5 @@ def export_graph_png(output_path: str = "game_graph.png"):
 
 
 if __name__ == "__main__":
-    export_graph_png("game_graph.png")
+    # export_graph_png("game_graph.png")
     run_game()
