@@ -10,7 +10,7 @@ from poker_core import create_deck, determine_winner
 from agent_config import call_llm_for_action
 from game_display import (
     print_player_action, print_dealer_info,
-    print_winner_info, print_community_cards
+    print_winner_info, print_community_cards, print_showdown_info
 )
 
 
@@ -33,6 +33,9 @@ class GameState(TypedDict):
     max_raises_per_street: int
     raises_in_street: int
     last_raise_size: int
+    mode: str
+    human_player: str
+    show_hole_cards: bool
 
 
 def _is_active(name, players_info, chips):
@@ -152,7 +155,11 @@ def dealer_node(state: GameState) -> dict:
             "is_human": state["players_info"].get(name, {}).get("is_human", False),
         }
 
-    print_dealer_info(players_info)
+    print_dealer_info(
+        players_info,
+        mode=state.get("mode", "god"),
+        human_player=state.get("human_player", "你"),
+    )
     if ante_total > 0:
         print("  （前注已收取：每位存活玩家 " + str(ante) + "，当前底池已含前注 " + str(ante_total) + "）")
 
@@ -211,7 +218,7 @@ def deal_community_node(state: GameState) -> dict:
     }
 
 
-def player_action_node(state: GameState) -> dict:
+def _action_node_impl(state: GameState, force_human: bool = False) -> dict:
     name = state["current_player"]
     order = state["player_order"]
     next_name = _next_player(name, order)
@@ -288,9 +295,20 @@ def player_action_node(state: GameState) -> dict:
         ctx_lines.append("提示：跟注需 " + str(to_call) + " 筹码，可选 call/raise/fold。")
     game_context = "\n".join(ctx_lines) + "\n"
 
-    is_human = state["players_info"][name].get("is_human", False)
+    is_human = force_human or state["players_info"][name].get("is_human", False)
     if is_human:
-        action, amount, speech = _human_input(name, hole_cards, game_context, to_call, my_chips)
+        action, amount, speech = _human_input(
+            name,
+            hole_cards,
+            game_context,
+            stage,
+            pot,
+            my_chips,
+            my_bet,
+            current_max_bet,
+            to_call,
+            min_raise_to,
+        )
     else:
         action, amount, speech = call_llm_for_action(name, hole_cards, game_context)
 
@@ -323,7 +341,15 @@ def player_action_node(state: GameState) -> dict:
         amount = 0 if action == "check" else min(to_call, my_chips)
 
     chips_after_action = my_chips - amount
-    print_player_action(name, action, amount, speech , chips_after_action, hole_cards)
+    print_player_action(
+        name,
+        action,
+        amount,
+        speech,
+        chips_after_action,
+        hole_cards,
+        show_hole_cards=state.get("show_hole_cards", True) or name == state.get("human_player", "你"),
+    )
 
     new_players_info = dict(state["players_info"])
     new_players_info[name] = dict(new_players_info[name])
@@ -367,20 +393,80 @@ def player_action_node(state: GameState) -> dict:
     }
 
 
-def _human_input(name, hole_cards, game_context, to_call, my_chips):
+def player_action_node(state: GameState) -> dict:
+    return _action_node_impl(state, force_human=False)
+
+
+def human_action_node(state: GameState) -> dict:
+    return _action_node_impl(state, force_human=True)
+
+
+def _human_input(name, hole_cards, game_context, stage, pot, my_chips, my_bet, current_max_bet, to_call, min_raise_to):
     cards_str = " ".join([c if isinstance(c, str) else str(c) for c in hole_cards])
-    print("\n你的手牌：" + cards_str)
+
+    print("\n" + "=" * 70)
+    print("【你的决策面板】")
+    print("街道：" + str(stage) + " | 底池：" + str(pot))
+    print("你的手牌：" + cards_str)
+    print("你的筹码：" + str(my_chips) + " | 你本轮下注：" + str(my_bet))
+    print("当前最高下注：" + str(current_max_bet) + " | to_call：" + str(to_call))
+    print("最小可加注到：" + str(min_raise_to))
+    print("=" * 70)
     print(game_context)
     print("可选行动：fold / check / call / raise <金额>")
-    raw = input(name + " 请输入行动：").strip()
-    parts = raw.split()
-    action = parts[0].lower() if parts else "check"
-    amount = int(parts[1]) if len(parts) > 1 else 0
-    if action not in ["fold", "check", "call", "raise"]:
-        action = "check"
-    if action in ["fold", "check"]:
-        amount = 0
-    return (action, amount, "")
+    print("快捷输入：ca=call，ch=check")
+
+    while True:
+        raw = input(name + " 请输入行动：").strip()
+        parts = raw.split()
+        action = parts[0].lower() if parts else ""
+        if action == "ca":
+            action = "call"
+        elif action == "ch":
+            action = "check"
+
+        if action not in ["fold", "check", "call", "raise"]:
+            print("输入无效，请输入 fold/check/call/raise（raise 需带金额）")
+            continue
+
+        if action in ["fold", "check", "call"] and len(parts) > 2:
+            print("输入格式错误，示例：call 或 raise 120")
+            continue
+
+        if action == "raise":
+            if len(parts) < 2:
+                print("raise 需要金额，示例：raise 120")
+                continue
+            if not parts[1].isdigit():
+                print("raise 金额必须是整数")
+                continue
+            amount = int(parts[1])
+        else:
+            amount = 0
+
+        if action == "call" and to_call <= 0:
+            print("当前无需跟注，call 将按 check 处理")
+        if action == "raise" and amount <= 0:
+            print("raise 金额必须大于0")
+            continue
+        if action == "raise" and amount > my_chips:
+            print("raise 金额不能超过你的当前筹码：" + str(my_chips))
+            continue
+
+        break
+
+    speech = input(name + " 请输入一句场上话（可留空）：").strip()
+    if not speech:
+        speech = "我先看你们怎么走。"
+    return (action, amount, speech)
+
+
+def route_entry_action_node(state: GameState) -> str:
+    current = state.get("current_player", "")
+    info = state.get("players_info", {}).get(current, {})
+    if info.get("is_human", False):
+        return "human_action"
+    return "player_action"
 
 
 def route_player_action(state: GameState) -> str:
@@ -414,6 +500,7 @@ def route_player_action(state: GameState) -> str:
 
 
 def judge_winner_node(state: GameState) -> dict:
+    print_showdown_info(state["players_info"], state["community_cards"])
     winner = determine_winner(state["players_info"], state["community_cards"])
     new_chips = dict(state["chips"])
     if winner is None:
