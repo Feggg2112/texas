@@ -163,8 +163,9 @@ def call_llm_for_action(agent_name: str, hole_cards: list, game_context: str) ->
             {"role": "system", "content": profile["system_prompt"]},
             {"role": "user", "content": user_prompt},
         ],
-        temperature=0.9,
+        temperature=1.7,
         max_tokens=200,
+        top_p=0.7,
     )
 
     content = response.choices[0].message.content.strip()

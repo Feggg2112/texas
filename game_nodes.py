@@ -424,6 +424,10 @@ def _human_input(name, hole_cards, game_context, stage, pot, my_chips, my_bet, c
             action = "call"
         elif action == "ch":
             action = "check"
+        elif action == "f":
+            action = "fold"
+        elif action == "r":
+            action = "raise"
 
         if action not in ["fold", "check", "call", "raise"]:
             print("输入无效，请输入 fold/check/call/raise（raise 需带金额）")
